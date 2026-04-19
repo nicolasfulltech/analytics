@@ -22,7 +22,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: bench (quick)
-        # --quick trims criterion's sample count for a CI-friendly run.
-        # A genuine regression still shows up; we catch trends, not single-
-        # percent drift, and the bench hardware drift is larger than that.
-        run: cargo bench --quick
+        # --quick is criterion's early-stop flag, passed after `--`. Each
+        # bench target has to be named explicitly because cargo bench would
+        # otherwise also run the lib unittest harness, which doesn't know
+        # the flag and exits non-zero.
+        run: cargo bench --bench ingest --bench queries -- --quick
