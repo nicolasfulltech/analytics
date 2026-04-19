@@ -74,16 +74,16 @@ async fn beacon_handler(
         return Err(AppError::BadRequest("missing user-agent".into()));
     }
 
-    let id = match insert_event(&state, event, &ua, &auth.client_ip).await {
-        Ok(id) => id,
-        Err(err) => {
-            crate::metrics::bump(&state.metrics.events_rejected);
-            return Err(err);
-        }
-    };
+    if let Err(err) = insert_event(&state, event, &ua, &auth.client_ip).await {
+        crate::metrics::bump(&state.metrics.events_rejected);
+        return Err(err);
+    }
     crate::metrics::bump(&state.metrics.events_ingested_beacon);
     state.delivery_notify.notify_one();
-    Ok((StatusCode::ACCEPTED, Json(serde_json::json!({ "id": id }))))
+    // No body: returning the autoincrement row id would let any caller
+    // subtract two responses to estimate global event volume. The beacon is
+    // fire-and-forget — the browser doesn't need an id.
+    Ok(StatusCode::ACCEPTED)
 }
 
 /// Upper bound on `extra` JSON bytes. Keeps a single event from monopolizing
