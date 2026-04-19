@@ -1,0 +1,28 @@
+name: bench
+
+# Benchmark smoke test — runs the criterion suite with a short sample budget
+# to catch regressions in the hot paths without hogging CI minutes. The full
+# measurement run is still `cargo bench --bench *` locally on real hardware.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: bench (quick)
+        # --quick trims criterion's sample count for a CI-friendly run.
+        # A genuine regression still shows up; we catch trends, not single-
+        # percent drift, and the bench hardware drift is larger than that.
+        run: cargo bench --quick

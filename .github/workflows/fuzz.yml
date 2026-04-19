@@ -1,0 +1,33 @@
+name: fuzz
+
+# Nightly smoke test for the cargo-fuzz targets. Runs each target for a
+# bounded wall-clock so CI time stays sensible; deep fuzzing still belongs
+# on dedicated infra (OSS-Fuzz or a runner you own).
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # 04:00 UTC — off-peak
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: fuzz incoming_event
+        working-directory: fuzz
+        run: cargo +nightly fuzz run incoming_event -- -max_total_time=120
+
+      - name: fuzz parse_utm
+        working-directory: fuzz
+        run: cargo +nightly fuzz run parse_utm -- -max_total_time=120

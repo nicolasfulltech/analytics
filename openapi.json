@@ -1,0 +1,317 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "simple-analytics",
+    "version": "0.1.0",
+    "description": "Self-hosted, privacy-first, cookieless analytics micro-service. See API.md for the full reference."
+  },
+  "servers": [{ "url": "/" }],
+  "components": {
+    "securitySchemes": {
+      "writeKey": { "type": "apiKey", "in": "header", "name": "x-write-key" },
+      "readKey":  { "type": "apiKey", "in": "header", "name": "x-read-key" },
+      "adminKey": { "type": "apiKey", "in": "header", "name": "x-admin-key" },
+      "siteToken":{ "type": "apiKey", "in": "header", "name": "x-id" }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code":    { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "required": ["code", "message"]
+          }
+        }
+      },
+      "CollectPayload": {
+        "type": "object",
+        "required": ["type", "url", "user_agent", "ip"],
+        "properties": {
+          "type":       { "type": "string", "enum": ["pageview", "search", "custom"] },
+          "name":       { "type": "string", "nullable": true },
+          "url":        { "type": "string", "format": "uri" },
+          "title":      { "type": "string", "nullable": true },
+          "referer":    { "type": "string", "nullable": true },
+          "segments":   { "type": "array", "items": { "type": "string" }, "maxItems": 32 },
+          "user_agent": { "type": "string", "maxLength": 2048 },
+          "ip":         { "type": "string" },
+          "user":       { "type": "string", "description": "Signed JSON payload; see API.md" },
+          "user_sig":   { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "search": {
+            "type": "object",
+            "properties": {
+              "query":          { "type": "string" },
+              "result_count":   { "type": "integer" },
+              "results":        { "type": "array", "items": { "type": "string" } },
+              "clicked_result": { "type": "string" }
+            }
+          },
+          "extra": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "EventRow": {
+        "type": "object",
+        "properties": {
+          "id":             { "type": "integer" },
+          "ts":             { "type": "integer", "description": "unix ms" },
+          "event_type":     { "type": "string" },
+          "event_name":     { "type": "string", "nullable": true },
+          "url":            { "type": "string" },
+          "page_title":     { "type": "string", "nullable": true },
+          "user_agent":     { "type": "string" },
+          "device_type":    { "type": "string", "nullable": true },
+          "device_os":      { "type": "string", "nullable": true },
+          "device_browser": { "type": "string", "nullable": true },
+          "referer":        { "type": "string", "nullable": true },
+          "source":         { "type": "string", "nullable": true },
+          "utm_source":     { "type": "string", "nullable": true },
+          "utm_medium":     { "type": "string", "nullable": true },
+          "utm_campaign":   { "type": "string", "nullable": true },
+          "utm_term":       { "type": "string", "nullable": true },
+          "utm_content":    { "type": "string", "nullable": true },
+          "visitor_hash":   { "type": "string", "nullable": true, "description": "Only present when privacy.expose_visitor_hash=true" },
+          "segments":       { "type": "array", "items": { "type": "string" } },
+          "extra":          { "type": "object", "additionalProperties": true, "nullable": true },
+          "user_id":        { "type": "string", "nullable": true },
+          "country":        { "type": "string", "nullable": true },
+          "user":           { "type": "object", "additionalProperties": true, "nullable": true },
+          "session_id":     { "type": "string", "nullable": true }
+        }
+      },
+      "EventListResponse": {
+        "type": "object",
+        "properties": {
+          "events":      { "type": "array", "items": { "$ref": "#/components/schemas/EventRow" } },
+          "next_offset": { "type": "integer", "nullable": true }
+        }
+      },
+      "StatsRow": {
+        "type": "object",
+        "properties": {
+          "day":         { "type": "string", "description": "YYYY-MM-DD (UTC)" },
+          "event_type":  { "type": "string" },
+          "source":      { "type": "string", "nullable": true },
+          "segment":     { "type": "string", "nullable": true },
+          "device_type": { "type": "string", "nullable": true },
+          "country":     { "type": "string", "nullable": true },
+          "count":       { "type": "integer" },
+          "visitors":    { "type": "integer" }
+        }
+      },
+      "UrlStatsRow": {
+        "type": "object",
+        "properties": {
+          "day":        { "type": "string" },
+          "url":        { "type": "string" },
+          "event_type": { "type": "string" },
+          "count":      { "type": "integer" },
+          "visitors":   { "type": "integer" }
+        }
+      },
+      "PageStatsRow": {
+        "type": "object",
+        "properties": {
+          "url":      { "type": "string" },
+          "count":    { "type": "integer" },
+          "visitors": { "type": "integer" },
+          "last_ts":  { "type": "integer" }
+        }
+      },
+      "UserPageRow": {
+        "type": "object",
+        "properties": {
+          "url":      { "type": "string" },
+          "count":    { "type": "integer" },
+          "first_ts": { "type": "integer" },
+          "last_ts":  { "type": "integer" }
+        }
+      },
+      "SourceStatsRow": {
+        "type": "object",
+        "properties": {
+          "source":   { "type": "string", "nullable": true },
+          "count":    { "type": "integer" },
+          "visitors": { "type": "integer" }
+        }
+      },
+      "TimeseriesRow": {
+        "type": "object",
+        "properties": {
+          "bucket":   { "type": "string", "description": "ISO-8601 UTC; hour or day precision" },
+          "count":    { "type": "integer" },
+          "visitors": { "type": "integer" }
+        }
+      },
+      "SearchStatsRow": {
+        "type": "object",
+        "properties": {
+          "query":              { "type": "string" },
+          "count":              { "type": "integer" },
+          "visitors":           { "type": "integer" },
+          "avg_result_count":   { "type": "number", "nullable": true },
+          "zero_result_count":  { "type": "integer" }
+        }
+      },
+      "UserTimelineRow": {
+        "type": "object",
+        "properties": {
+          "ts":          { "type": "integer" },
+          "event_type":  { "type": "string" },
+          "event_name":  { "type": "string", "nullable": true },
+          "url":         { "type": "string" },
+          "page_title":  { "type": "string", "nullable": true },
+          "source":      { "type": "string", "nullable": true },
+          "device_type": { "type": "string", "nullable": true },
+          "session_id":  { "type": "string", "nullable": true }
+        }
+      },
+      "FunnelStep": {
+        "type": "object",
+        "properties": {
+          "step":        { "type": "integer" },
+          "url":         { "type": "string" },
+          "visitors":    { "type": "integer" },
+          "dropoff_pct": { "type": "number" }
+        }
+      },
+      "NewReturningRow": {
+        "type": "object",
+        "properties": {
+          "new_visitors":       { "type": "integer" },
+          "returning_visitors": { "type": "integer" },
+          "total_sessions":     { "type": "integer" }
+        }
+      },
+      "WebhookResponse": {
+        "type": "object",
+        "properties": {
+          "id":          { "type": "string", "format": "uuid" },
+          "url":         { "type": "string" },
+          "has_secret":  { "type": "boolean" },
+          "event_types": { "type": "array", "items": { "type": "string" } },
+          "active":      { "type": "boolean" },
+          "created_at":  { "type": "integer" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/collect": {
+      "post": {
+        "tags": ["ingest"],
+        "summary": "Server-side event ingest",
+        "security": [{ "writeKey": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CollectPayload" } } }
+        },
+        "responses": {
+          "202": { "description": "accepted",
+                   "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" } } } } } },
+          "400": { "description": "validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "unauthorized",    "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "413": { "description": "payload too large" },
+          "429": { "description": "rate limited" }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "tags": ["query"],
+        "summary": "List events with filters + pagination",
+        "security": [{ "readKey": [] }],
+        "parameters": [
+          { "name": "from",        "in": "query", "schema": { "type": "integer" } },
+          { "name": "to",          "in": "query", "schema": { "type": "integer" } },
+          { "name": "event_type",  "in": "query", "schema": { "type": "string"  } },
+          { "name": "source",      "in": "query", "schema": { "type": "string"  } },
+          { "name": "device_type", "in": "query", "schema": { "type": "string"  } },
+          { "name": "segment",     "in": "query", "schema": { "type": "string"  } },
+          { "name": "url",         "in": "query", "schema": { "type": "string"  } },
+          { "name": "user_id",     "in": "query", "schema": { "type": "string"  } },
+          { "name": "country",     "in": "query", "schema": { "type": "string"  } },
+          { "name": "limit",       "in": "query", "schema": { "type": "integer", "default": 100, "maximum": 1000 } },
+          { "name": "offset",      "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventListResponse" } } } },
+          "401": { "description": "unauthorized" },
+          "429": { "description": "rate limited" }
+        }
+      },
+      "delete": {
+        "tags": ["query"],
+        "summary": "GDPR: delete all events for a user_id OR visitor_hash",
+        "security": [{ "adminKey": [] }],
+        "parameters": [
+          { "name": "user_id",      "in": "query", "schema": { "type": "string" } },
+          { "name": "visitor_hash", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "OK",
+                   "content": { "application/json": { "schema": { "type": "object", "properties": { "deleted": { "type": "integer" } } } } } },
+          "400": { "description": "need exactly one of user_id or visitor_hash" }
+        }
+      }
+    },
+    "/stats":            { "get": { "tags": ["query"], "summary": "Daily rollups", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/StatsRow" } } } } } } } },
+    "/stats/urls":       { "get": { "tags": ["query"], "summary": "Per-URL daily rollups", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/UrlStatsRow" } } } } } } } },
+    "/stats/pages":      { "get": { "tags": ["query"], "summary": "Hits per page over a time range", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/PageStatsRow" } } } } } } } },
+    "/stats/user_pages": { "get": { "tags": ["query"], "summary": "Pages viewed by a specific user (user_id required)", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/UserPageRow" } } } } } } } },
+    "/stats/sources":    { "get": { "tags": ["query"], "summary": "Top referrers / utm_sources over a time range", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/SourceStatsRow" } } } } } } } },
+    "/stats/timeseries": { "get": { "tags": ["query"], "summary": "Event counts bucketed by hour or day", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/TimeseriesRow" } } } } } } } },
+    "/stats/searches":   { "get": { "tags": ["query"], "summary": "Top search queries (with zero-result support)", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/SearchStatsRow" } } } } } } } },
+    "/stats/user_timeline": { "get": { "tags": ["query"], "summary": "Chronological event list for a user (user_id required)", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/UserTimelineRow" } } } } } } } },
+    "/stats/funnels":    { "get": { "tags": ["query"], "summary": "Funnel conversion across an ordered URL sequence (?steps=a,b,c)", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/FunnelStep" } } } } } } } },
+    "/stats/new_returning": { "get": { "tags": ["query"], "summary": "New vs returning visitor split over a time range", "security": [{ "readKey": [] }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewReturningRow" } } } } } } },
+    "/export": {
+      "get": {
+        "tags": ["query"],
+        "summary": "Stream matching events as CSV or NDJSON",
+        "security": [{ "readKey": [] }],
+        "parameters": [
+          { "name": "format", "in": "query", "schema": { "type": "string", "enum": ["ndjson", "csv"], "default": "ndjson" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "streamed body",
+            "content": {
+              "application/x-ndjson": { "schema": { "type": "string" } },
+              "text/csv": { "schema": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "/webhooks": {
+      "post": {
+        "tags": ["webhooks"],
+        "summary": "Register a webhook subscriber",
+        "security": [{ "adminKey": [] }],
+        "responses": {
+          "201": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookResponse" } } } }
+        }
+      },
+      "get": {
+        "tags": ["webhooks"],
+        "summary": "List webhook subscribers",
+        "security": [{ "adminKey": [] }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/WebhookResponse" } } } } }
+        }
+      }
+    },
+    "/webhooks/{id}": {
+      "get":    { "tags": ["webhooks"], "summary": "Get a webhook",    "security": [{ "adminKey": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WebhookResponse" } } } } } },
+    "delete": { "tags": ["webhooks"], "summary": "Delete a webhook", "security": [{ "adminKey": [] }], "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }], "responses": { "204": { "description": "deleted" } } }
+    },
+    "/healthz": { "get": { "tags": ["ops"], "summary": "Liveness probe", "responses": { "200": { "description": "ok" } } } },
+    "/readyz":  { "get": { "tags": ["ops"], "summary": "Readiness probe (DB check)", "responses": { "200": { "description": "ready" }, "503": { "description": "not ready" } } } },
+    "/metrics": { "get": { "tags": ["ops"], "summary": "Prometheus text exposition", "responses": { "200": { "description": "text/plain", "content": { "text/plain": { "schema": { "type": "string" } } } } } } },
+    "/openapi.json": { "get": { "tags": ["ops"], "summary": "This spec", "responses": { "200": { "description": "OK" } } } }
+  }
+}

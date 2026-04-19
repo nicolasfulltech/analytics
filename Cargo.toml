@@ -1,0 +1,63 @@
+[package]
+name = "simple-analytics"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+# Keep the fuzz crate out of the default `cargo build` / `cargo test`
+# runs — it requires nightly and libFuzzer. Driven explicitly from
+# `fuzz/` via `cargo +nightly fuzz run ...`.
+exclude = ["fuzz"]
+
+[dependencies]
+anyhow = "1.0.102"
+arc-swap = "1.7"
+axum = "0.8"
+blake3 = "1.8.4"
+figment = { version = "0.10.19", features = ["toml", "env"] }
+futures = "0.3.32"
+maxminddb = "0.27.3"
+moka = { version = "0.12.15", features = ["future"] }
+rand = "0.10.1"
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls", "sqlite", "json", "macros", "time", "uuid"] }
+thiserror = "2.0.18"
+time = { version = "0.3.47", features = ["serde", "formatting", "parsing", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.18"
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.6.8", features = ["cors", "trace", "timeout", "limit", "compression-gzip"] }
+tower_governor = "0.8.0"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+url = "2.5.8"
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+criterion = { version = "0.7", features = ["async_tokio"] }
+pretty_assertions = "1.4.1"
+proptest = "1.5"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+tempfile = "3.27.0"
+tokio = { version = "1", features = ["test-util"] }
+
+[[bench]]
+name = "ingest"
+harness = false
+
+[[bench]]
+name = "queries"
+harness = false
+
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

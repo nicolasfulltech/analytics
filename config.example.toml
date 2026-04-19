@@ -1,0 +1,150 @@
+# simple-analytics example configuration
+# Load order: config.toml < env vars (ANALYTICS_* prefix, `__` as nested separator)
+
+[server]
+bind               = "0.0.0.0:8080"
+max_body_bytes     = 65536
+request_timeout_ms = 10000
+# Cap concurrent /export streams. Each pins a SQLite connection for up to
+# export_deadline_secs seconds; low caps prevent slow readers starving ingest.
+export_concurrency   = 2
+export_deadline_secs = 60
+# Default + maximum time window for /stats/* endpoints that read raw events.
+# Without these, `/stats/pages` etc. with no `from`/`to` would scan the whole
+# events table (COUNT(DISTINCT visitor_hash) is B-tree-hostile). A naked call
+# is clamped to `stats_default_range_days`; an explicit wider range is
+# rejected at `stats_max_range_days`.
+stats_default_range_days = 30
+stats_max_range_days     = 365
+
+[database]
+path            = "./data/analytics.db"
+max_connections = 8
+
+[auth]
+# All keys must be at least 32 characters. Generate with:
+#   openssl rand -hex 32
+# NOTE: the example values below use the `CHANGEME` prefix, which Config::validate
+# hard-rejects at startup. This is deliberate — the service will not boot with
+# placeholder keys. Replace every key below with a real random value before use.
+write_keys      = ["CHANGEME-write-key-generate-with-openssl-rand-hex-32"]
+read_keys       = ["CHANGEME-read-key-generate-with-openssl-rand-hex-32"]
+admin_keys      = ["CHANGEME-admin-key-generate-with-openssl-rand-hex-32"]
+
+# Browser beacon: public token embedded in the JS snippet.
+# Leave empty to disable the browser ingest endpoint entirely.
+site_token      = ""
+allowed_origins = []  # e.g. ["https://mysite.com", "https://www.mysite.com"]
+
+# Optional: when set, callers can attach an HMAC-signed `user` object to events
+# (see README → User attribution). Shared between this service and the app
+# servers that issue signed tokens. ≥ 32 characters. When set, callers must
+# include an `iat` (unix seconds) field in the signed JSON; tokens older than
+# `user_token_max_age_secs` are rejected as stale to bound replay of captured
+# tokens.
+user_signing_secret = ""
+# Freshness window (seconds) for signed user tokens. 0 disables the check
+# (captured tokens become valid forever — don't).
+user_token_max_age_secs = 900
+
+[ingest]
+# Allowlist of segment tags that events may include. If empty, any segment is accepted.
+allowed_segments        = []
+# When true, events with segments outside the allowlist are accepted (segments still logged).
+allow_unknown_segments  = false
+browser_rate_limit_per_min = 120
+browser_rate_limit_burst   = 30
+# Global-per-site-token cap on the browser beacon. The per-IP limiter above
+# caps one browser; this caps what any attacker rotating IPs with a leaked
+# site_token can drive through.
+beacon_token_rate_limit_per_min = 60000
+beacon_token_rate_limit_burst   = 5000
+# Per-write-key cap for the server-to-server /collect endpoint. Defends a
+# leaked key from bulk-injecting events. 0 disables (not recommended).
+server_rate_limit_per_min  = 6000
+server_rate_limit_burst    = 500
+# Per-read-key cap on /events, /stats, /export. Stops a leaked read key from
+# streaming the entire event table in a tight loop.
+read_rate_limit_per_min    = 120
+read_rate_limit_burst      = 60
+# When true, the service trusts X-Forwarded-For / X-Real-IP. Enable ONLY when
+# EXACTLY ONE trusted proxy sits in front of the service, and that proxy
+# rewrites the header (`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`
+# or equivalent). Multi-hop proxy chains are not supported — the last-value
+# strategy would pick up the nearest proxy's IP rather than the client's.
+# With a misconfigured proxy (or direct bypass), an attacker can spoof IP.
+trust_proxy             = false
+
+[validator]
+# Optional URL validator endpoint. See README for the contract.
+# When set, the validator host is DNS-resolved at startup and the reqwest
+# client pins the resolved IP — defeats DNS rebinding between validation and
+# connect. A background task re-resolves every 5 minutes to pick up genuine
+# IP rotations without a restart.
+# url             = "https://mysite.com/api/analytics/validate-url"
+cache_ttl_secs  = 3600
+cache_size      = 10000
+timeout_ms      = 500
+# On validator error/timeout: false = reject the event (fail closed, default),
+# true = accept the event (fail open — a validator outage becomes an open
+# ingest door, useful only for low-stakes deployments).
+fail_open       = false
+# Refuse validator URLs that resolve to loopback/private/metadata ranges.
+# Only set true if the validator runs on your trusted private network.
+allow_private_targets = false
+
+[webhooks]
+max_retries          = 8
+retry_base_ms        = 1000
+concurrency          = 4
+delivery_timeout_ms  = 5000
+# SSRF guard — refuse subscriber URLs that resolve to loopback, RFC-1918,
+# link-local, CGNAT, cloud-metadata etc. Only enable if subscribers run on
+# your own private network. Even when true, a dangerous-ports deny list
+# (SSH, SMTP, Redis, Postgres, Mongo, …) still applies.
+allow_private_targets = false
+# Queue-depth cap: when the pending-delivery table reaches this many rows,
+# new events stop being enqueued for webhook delivery until the worker
+# drains the backlog. Prevents a single failing subscriber from growing
+# `webhook_deliveries` unboundedly. 0 disables (not recommended).
+max_pending_deliveries = 200000
+# Zombie-pending sweep: rows left in `pending` past this age are deleted on
+# the next worker tick. Beyond `retry_base_ms × 2^max_retries` a pending row
+# can only be orphaned state; 72h is comfortably past any real retry window.
+pending_max_age_hours  = 72
+# Hard cap on webhook subscriber count. An admin-key holder who could
+# register unlimited endpoints would fan every ingest event into a flood of
+# deliveries and fill `max_pending_deliveries`. Raise only with operational
+# justification. 0 disables the cap (not recommended).
+max_webhooks           = 50
+
+[materialization]
+interval_secs = 300
+
+# Browser-facing URL paths & header name. Customize to dodge generic ad-blocker
+# blocklists (they match words like "beacon", "analytics", "tracker"). Defaults
+# are intentionally short & neutral. Server-to-server routes (`/collect`,
+# `/stats`, `/events`, `/export`, `/webhooks`) are not configurable because
+# ad-blockers never see them.
+[endpoints]
+browser_collect_path = "/e"        # POST from the browser snippet
+browser_script_path  = "/s.js"     # served JS snippet
+browser_token_header = "x-id"      # request header carrying the site token
+js_namespace         = "sa"        # window.sa.pageview/search/custom/identify
+
+# Optional country-level geolocation (MaxMind GeoLite2-Country format).
+# Set `enabled = true` and point `database_path` at a `.mmdb` file.
+[geoip]
+enabled       = false
+# database_path = "/app/data/GeoLite2-Country.mmdb"
+
+# Response-shape privacy knobs.
+[privacy]
+# `visitor_hash` is a stable per-day, per-salt identifier. Leaking it to
+# read-key holders turns a leaked key into a full activity graph. Default
+# keeps it out of /events, /export, /stats/*, and webhook payloads.
+expose_visitor_hash = false
+# The full signed `user` JSON blob typically carries PII (id/email/plan).
+# Webhook subscribers always get `user_id`; only enable this when every
+# subscriber is trusted with the full user record.
+expose_user_payload = false

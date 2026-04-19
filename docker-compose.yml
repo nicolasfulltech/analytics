@@ -1,0 +1,36 @@
+services:
+  analytics:
+    build: .
+    image: simple-analytics:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - analytics-data:/app/data
+    environment:
+      RUST_LOG: info
+      LOG_FORMAT: json
+      ANALYTICS_SERVER__BIND: 0.0.0.0:8080
+      ANALYTICS_DATABASE__PATH: /app/data/analytics.db
+
+      # REQUIRED: at least one of each. Comma-separated for multiple.
+      ANALYTICS_AUTH__WRITE_KEYS: ${ANALYTICS_WRITE_KEYS:?set a write key, 32+ chars}
+      ANALYTICS_AUTH__READ_KEYS: ${ANALYTICS_READ_KEYS:?set a read key, 32+ chars}
+      ANALYTICS_AUTH__ADMIN_KEYS: ${ANALYTICS_ADMIN_KEYS:?set an admin key, 32+ chars}
+
+      # Browser beacon (optional — leave empty to disable browser ingestion)
+      ANALYTICS_AUTH__SITE_TOKEN: ${ANALYTICS_SITE_TOKEN:-}
+      ANALYTICS_AUTH__ALLOWED_ORIGINS: ${ANALYTICS_ALLOWED_ORIGINS:-}
+
+      # Segments allowlist — comma-separated
+      ANALYTICS_INGEST__ALLOWED_SEGMENTS: ${ANALYTICS_ALLOWED_SEGMENTS:-}
+      ANALYTICS_INGEST__ALLOW_UNKNOWN_SEGMENTS: ${ANALYTICS_ALLOW_UNKNOWN_SEGMENTS:-false}
+      ANALYTICS_INGEST__TRUST_PROXY: ${ANALYTICS_TRUST_PROXY:-false}
+
+      # URL validator (optional)
+      ANALYTICS_VALIDATOR__URL: ${ANALYTICS_VALIDATOR_URL:-}
+      ANALYTICS_VALIDATOR__CACHE_TTL_SECS: ${ANALYTICS_VALIDATOR_CACHE_TTL:-3600}
+      ANALYTICS_VALIDATOR__FAIL_OPEN: ${ANALYTICS_VALIDATOR_FAIL_OPEN:-true}
+
+volumes:
+  analytics-data:

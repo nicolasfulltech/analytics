@@ -1,0 +1,29 @@
+[package]
+name = "simple-analytics-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+url = "2"
+
+[dependencies.simple-analytics]
+path = ".."
+
+# cargo-fuzz requires each target to be its own `[[bin]]`.
+[[bin]]
+name = "incoming_event"
+path = "fuzz_targets/incoming_event.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "parse_utm"
+path = "fuzz_targets/parse_utm.rs"
+test = false
+doc = false
